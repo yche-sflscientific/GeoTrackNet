@@ -200,18 +200,22 @@ def interpolate(t, track):
         - [LAT, LON, SOG, COG, HEADING, ROT, NAV_STT, TIMESTAMP, MMSI]
                         
     """
-    
+    MMSI, LAT, LON, SOG, COG, Heading, ROT, NAV_STT, TIMESTAMP, SHIPTYPE = 0, 2, 3, 4, 5, 6, 7, 9, 1, 8
+
     before_p = np.nonzero(t >= track[:,TIMESTAMP])[0]
     after_p = np.nonzero(t < track[:,TIMESTAMP])[0]
-   
+    
+    #Transpose to change Dimensions    
     if (len(before_p) > 0) and (len(after_p) > 0):
         apos = after_p[0]
         bpos = before_p[-1]    
         # Interpolation
         dt_full = float(track[apos,TIMESTAMP] - track[bpos,TIMESTAMP])
+        #print(f'dt_full: {dt_full}')
         if (abs(dt_full) > 2*3600):
             return None
         dt_interp = float(t - track[bpos,TIMESTAMP])
+        
         try:
             az, _, dist = geod.inv(track[bpos,LON],
                                    track[bpos,LAT],
@@ -223,17 +227,21 @@ def interpolate(t, track):
             speed_interp = (track[apos,SOG] - track[bpos,SOG])*(dt_interp/dt_full) + track[bpos,SOG]
             course_interp = (track[apos,COG] - track[bpos,COG] )*(dt_interp/dt_full) + track[bpos,COG]
             heading_interp = (track[apos,HEADING] - track[bpos,HEADING])*(dt_interp/dt_full) + track[bpos,HEADING]  
-            rot_interp = (track[apos,ROT] - track[bpos,ROT])*(dt_interp/dt_full) + track[bpos,ROT]
-            if dt_interp > (dt_full/2):
-                nav_interp = track[apos,NAV_STT]
-            else:
-                nav_interp = track[bpos,NAV_STT]                             
+            # rot_interp = (track[apos,ROT] - track[bpos,ROT])*(dt_interp/dt_full) + track[bpos,ROT]
+            # if dt_interp > (dt_full/2):
+            #     nav_interp = track[apos,NAV_STT]
+            # else:
+            #     nav_interp = track[bpos,NAV_STT]                             
         except:
             return None
+        # return np.array([lat_interp, lon_interp,
+        #                  speed_interp, course_interp, 
+        #                  heading_interp, rot_interp, 
+        #                  nav_interp,t,
+        #                  track[0,MMSI]])
         return np.array([lat_interp, lon_interp,
                          speed_interp, course_interp, 
-                         heading_interp, rot_interp, 
-                         nav_interp,t,
+                         heading_interp,t,
                          track[0,MMSI]])
     else:
         return None

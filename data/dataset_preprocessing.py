@@ -24,6 +24,9 @@ from io import StringIO
 
 from tqdm import tqdm
 import argparse
+import pandas as pd
+import pdb
+
 
 # In[2]:
 def getConfig(args=sys.argv[1:]):
@@ -64,7 +67,9 @@ SPEED_MAX = 30.0  # knots
 DURATION_MAX = 24 #h
 
 EPOCH = datetime(1970, 1, 1)
-LAT, LON, SOG, COG, HEADING, ROT, NAV_STT, TIMESTAMP, MMSI = list(range(9))
+# Probably this need to be adjusted
+# LAT, LON, SOG, COG, HEADING, ROT, NAV_STT, TIMESTAMP, MMSI = list(range(9))
+MMSI, LAT, LON, SOG, COG, Heading, ROT, NAV_STT, TIMESTAMP, SHIPTYPE = 0, 2, 3, 4, 5, 6, 7, 9, 1, 8
 
 FIG_W = 960
 FIG_H = int(960*LAT_RANGE/LON_RANGE) #533 #768
@@ -126,11 +131,11 @@ print(len(Vs))
 print("Cutting discontiguous voyages into contiguous ones...")
 count = 0
 voyages = dict()
-INTERVAL_MAX = 2*3600 # 2h
+INTERVAL_MAX = pd.Timedelta(2, "h")
 for mmsi in list(Vs.keys()):
     v = Vs[mmsi]
     # Intervals between successive messages in a track
-    intervals = v[1:,TIMESTAMP] - v[:-1,TIMESTAMP]
+    intervals = pd.to_datetime(v[1:,TIMESTAMP]) - pd.to_datetime(v[:-1,TIMESTAMP])
     idx = np.where(intervals > INTERVAL_MAX)[0]
     if len(idx) == 0:
         voyages[count] = v
@@ -157,8 +162,8 @@ print(len(Vs))
 print("Removing AIS track whose length is smaller than 20 or those last less than 4h...")
 
 for k in list(voyages.keys()):
-    duration = voyages[k][-1,TIMESTAMP] - voyages[k][0,TIMESTAMP]
-    if (len(voyages[k]) < 20) or (duration < 4*3600):
+    duration = pd.to_datetime(voyages[k][-1,TIMESTAMP]) - pd.to_datetime(voyages[k][0,TIMESTAMP])
+    if (len(voyages[k]) < 20) or (duration < pd.Timedelta(4, "h")):
         voyages.pop(k, None)
 
 
@@ -171,25 +176,25 @@ print(len(voyages))
 # In[9]:
 
 
-# STEP 4: REMOVING OUTLIERS
-#======================================
-print("Removing anomalous message...")
-error_count = 0
-tick = time.time()
-for k in  tqdm(list(voyages.keys())):
-    track = voyages[k][:,[TIMESTAMP,LAT,LON,SOG]] # [Timestamp, Lat, Lon, Speed]
-    try:
-        o_report, o_calcul = utils.detectOutlier(track, speed_max = 30)
-        if o_report.all() or o_calcul.all():
-            voyages.pop(k, None)
-        else:
-            voyages[k] = voyages[k][np.invert(o_report)]
-            voyages[k] = voyages[k][np.invert(o_calcul)]
-    except:
-        voyages.pop(k,None)
-        error_count += 1
-tok = time.time()
-print("STEP 4: duration = ",(tok - tick)/60) # 139.685766101 mfrom tqdm import tqdmins
+# # STEP 4: REMOVING OUTLIERS
+# #======================================
+# print("Removing anomalous message...")
+# error_count = 0
+# tick = time.time()
+# for k in  tqdm(list(voyages.keys())):
+#     track = voyages[k][:,[TIMESTAMP,LAT,LON,SOG]] # [Timestamp, Lat, Lon, Speed]
+#     try:
+#         o_report, o_calcul = utils.detectOutlier(track, speed_max = 30)
+#         if o_report.all() or o_calcul.all():
+#             voyages.pop(k, None)
+#         else:
+#             voyages[k] = voyages[k][np.invert(o_report)]
+#             voyages[k] = voyages[k][np.invert(o_calcul)]
+#     except:
+#         voyages.pop(k,None)
+#         error_count += 1
+# tok = time.time()
+# print("STEP 4: duration = ",(tok - tick)/60) # 139.685766101 mfrom tqdm import tqdmins
 
 
 # In[10]:
@@ -207,9 +212,11 @@ print(len(voyages))
 print('Sampling...')
 Vs = dict()
 count = 0
+epoch = datetime(2010, 1, 1)
 for k in tqdm(list(voyages.keys())):
     v = voyages[k]
-    sampling_track = np.empty((0, 9))
+    sampling_track = np.empty((0, 7))
+    v[:, TIMESTAMP] = [(datetime.strptime(datum, '%Y-%m-%dT%H:%M:%S') - epoch).total_seconds() for datum in v[:, TIMESTAMP]]
     for t in range(int(v[0,TIMESTAMP]), int(v[-1,TIMESTAMP]), 300): # 5 min
         tmp = utils.interpolate(t,v)
         if tmp is not None:
@@ -260,36 +267,37 @@ print(len(Data))
 ## STEP 5: REMOVING 'MOORED' OR 'AT ANCHOR' VOYAGES
 #======================================
 # Removing 'moored' or 'at anchor' voyages
-print("Removing 'moored' or 'at anchor' voyages...")
-for k in  tqdm(list(Data.keys())):
-    d_L = float(len(Data[k]))
+# print("Removing 'moored' or 'at anchor' voyages...")
+# for k in  tqdm(list(Data.keys())):
+#     d_L = float(len(Data[k]))
 
-    if np.count_nonzero(Data[k][:,NAV_STT] == 1)/d_L > 0.7 \
-    or np.count_nonzero(Data[k][:,NAV_STT] == 5)/d_L > 0.7:
-        Data.pop(k,None)
-        continue
-    sog_max = np.max(Data[k][:,SOG])
-    if sog_max < 1.0:
-        Data.pop(k,None)
-print(len(Data))
+#     if np.count_nonzero(Data[k][:,NAV_STT] == 1)/d_L > 0.7 \
+#     or np.count_nonzero(Data[k][:,NAV_STT] == 5)/d_L > 0.7:
+#         Data.pop(k,None)
+#         continue
+#     sog_max = np.max(Data[k][:,SOG])
+#     if sog_max < 1.0:
+#         Data.pop(k,None)
+# print(len(Data))
 # In[12]:
 
 
-# In[15]:
+# # In[15]:
 
 
-## STEP 6: REMOVING LOW SPEED TRACKS
-#======================================
-print("Removing 'low speed' tracks...")
-for k in tqdm(list(Data.keys())):
-    d_L = float(len(Data[k]))
-    if np.count_nonzero(Data[k][:,SOG] < 2)/d_L > 0.8:
-        Data.pop(k,None)
-print(len(Data))
+# ## STEP 6: REMOVING LOW SPEED TRACKS
+# #======================================
+# print("Removing 'low speed' tracks...")
+# for k in tqdm(list(Data.keys())):
+#     d_L = float(len(Data[k]))
+#     if np.count_nonzero(Data[k][:,2] < 2)/d_L > 0.8:
+#         Data.pop(k,None)
+# print(len(Data))
 
 
 # In[21]:
-
+print("Before Normalization........")
+print(Data[0][0])
 
 ## STEP 9: NORMALISATION
 #======================================
@@ -304,7 +312,8 @@ for k in tqdm(list(Data.keys())):
 
 
 # In[22]:
-
+print("After Normalization")
+print(Data[0][0])
 
 print(config.output_filepath)
 
@@ -369,46 +378,20 @@ for k in list(Data.keys()):
     v = Data[k]
     if len(v) < minlen:
         minlen = len(v)
-print("min len: ",minlen)
-
-
-# In[32]:
-
-
-# len(Data[0])
-
-
-# In[33]:
-
-
-# print(debug)
-
-
-# In[34]:
-
-
-## Loading coastline polygon.
-# For visualisation purpose, delete this part if you do not have coastline
-# shapfile
-
-coastline_filename = "./streetmap_coastline_Bretagne.pkl"
-
-if "bretagne" in config.output_filepath:
-    with open(coastline_filename, 'rb') as f:
-        l_coastline_poly = pickle.load(f)
-
-# In[35]:
-
+print("min len: ", minlen)
 
 config.output_filepath
 
 
 # In[36]:
 
+import cartopy.crs as ccrs
+import cartopy.feature as cfeature
 
 Vs = Data
-FIG_DPI = 150
-plt.figure(figsize=(FIG_W/FIG_DPI, FIG_H/FIG_DPI), dpi=FIG_DPI)
+FIG_DPI = 200
+fig = plt.figure(figsize=(FIG_W/FIG_DPI, FIG_H/FIG_DPI), dpi=FIG_DPI)
+ax = plt.subplot(111, projection=ccrs.PlateCarree())
 cmap = plt.cm.get_cmap('Blues')
 l_keys = list(Vs.keys())
 N = len(Vs)
@@ -416,21 +399,23 @@ for d_i in range(N):
     key = l_keys[d_i]
     c = cmap(float(d_i)/(N-1))
     tmp = Vs[key]
-    v_lat = tmp[:,0]*LAT_RANGE + LAT_MIN
-    v_lon = tmp[:,1]*LON_RANGE + LON_MIN
-#     plt.plot(v_lon,v_lat,linewidth=0.8)
-    plt.plot(v_lon,v_lat,color=c,linewidth=0.8)
-
-## Coastlines
-if "bretagne" in config.output_filepath:
-    for point in l_coastline_poly:
-        poly = np.array(point)
-        plt.plot(poly[:,0],poly[:,1],color="k",linewidth=0.8)
-
-plt.xlim([LON_MIN,LON_MAX])
-plt.ylim([LAT_MIN,LAT_MAX])
-plt.xlabel("Longitude")
-plt.ylabel("Latitude")
+    #print(tmp[0])
+    v_lat = tmp[:,0]#*LAT_RANGE + LAT_MIN
+    v_lon = tmp[:,1]#*LON_RANGE + LON_MIN
+    
+    ax.plot(v_lon,v_lat,color=c,linewidth=0.8)
+ax.coastlines()
+ax.set_extent([-91,-88, 28.5, 29.8])
+# ## Coastlines
+# if "bretagne" in config.output_filepath:
+#     for point in l_coastline_poly:
+#         poly = np.array(point)
+#         plt.plot(poly[:,0],poly[:,1],color="k",linewidth=0.8)
+print("plotting...")
+# plt.xlim([LON_MIN,LON_MAX])
+# plt.ylim([LAT_MIN,LAT_MAX])
+ax.set_xlabel("Longitude")
+ax.set_ylabel("Latitude")
 plt.tight_layout()
 plt.savefig(config.output_filepath.replace(".pkl",".png"))
-
+#plt.show()
